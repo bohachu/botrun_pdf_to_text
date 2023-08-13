@@ -1,67 +1,46 @@
 import os
-import threading
-from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 from pypdf import PdfReader
+from typing import List, Optional
 
 
-def convert_pdf_to_txt(file_path):
-    # 檢查是否已經轉換過
+def convert_pdf_to_txt(file_path: str) -> None:
+    # Check if already converted
     if os.path.exists(file_path.replace(".pdf", ".txt")):
         print(f"Skipped (already converted): {file_path}")
         return
 
-    print(f"Converting: {file_path}")
-    reader = PdfReader(file_path)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    with open(file_path.replace(".pdf", ".txt"), "w") as text_file:
-        text_file.write(text)
-    print(f"Converted: {file_path}")
+    try:
+        print(f"Converting: {file_path}")
+        reader = PdfReader(file_path)
+        texts = [page.extract_text() for page in reader.pages]
+        text = ''.join(texts)
+        with open(file_path.replace(".pdf", ".txt"), "w") as text_file:
+            text_file.write(text)
+        print(f"Converted: {file_path}")
+    except Exception as e:
+        print(f"Error converting {file_path}. Reason: {e}")
 
 
-def worker():
-    while True:
-        file_path = q.get()
-        if file_path is None:
-            break
-        convert_pdf_to_txt(file_path)
-        q.task_done()
+def botrun_pdf_to_text_folder(folder_path: str) -> None:
+    files_to_convert = []
+
+    for root, _, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith(".pdf"):
+                files_to_convert.append(os.path.join(root, file))
+
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+        executor.map(convert_pdf_to_txt, files_to_convert)
 
 
-def botrun_pdf_to_text(input_data):
-    global q
-    q = Queue()
-    threads = []
+def botrun_pdf_to_text_files(file_list: List[str]) -> None:
+    files_to_convert = [file_path for file_path in file_list if file_path.endswith(".pdf")]
 
-    # 判斷 input_data 是 folder 還是檔案路徑列表
-    if isinstance(input_data, str):
-        for root, _, files in os.walk(input_data):
-            for file in files:
-                if file.endswith(".pdf"):
-                    q.put(os.path.join(root, file))
-    elif isinstance(input_data, list):
-        for file_path in input_data:
-            if file_path.endswith(".pdf"):
-                q.put(file_path)
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+        executor.map(convert_pdf_to_txt, files_to_convert)
 
-    # 啟動 10 個 threads
-    for i in range(10):
-        t = threading.Thread(target=worker)
-        t.start()
-        threads.append(t)
 
-    q.join()
-
-    # 停止 workers
-    for i in range(10):
-        q.put(None)
-    for t in threads:
-        t.join()
-
-# 使用方法：
-# 轉換指定 folder 底下的所有 PDFs:
-# botrun_pdf_to_text("/path/to/folder")
-
-# 轉換指定的 PDF 檔案路徑列表:
-# botrun_pdf_to_text(["/path/to/file1.pdf", "/path/to/file2.pdf"])
+if __name__ == "__main__":
+    botrun_pdf_to_text_folder("./users/cbh_cameo_tw/data/upload_files")
+    botrun_pdf_to_text_files(["./users/cbh_cameo_tw/data/upload_files/222715345.pdf"])
